@@ -3,57 +3,58 @@
 #
 # Targets:
 #   make all        — Compila master y worker (con stub de libaudio)
-#   make stub       — Genera libaudio.a desde libaudio_stub.c
 #   make clean      — Elimina objetos y binarios
 #   make run-3node  — Genera hostfile y script de clúster
 # ──────────────────────────────────────────────────────────────────────────────
 
-CC      = mpicc
-CFLAGS  = -Wall -Wextra -O2 -std=c99 -Iinclude
+CC     = mpicc
+CFLAGS = -Wall -Wextra -O2 -std=c99 -Iinclude
 
-SRC     = src
-INC     = include
+SRC = src
+INC = include
 
-# Objetos compartidos entre master y worker
-COMMON_OBJS = $(SRC)/crypto.o $(SRC)/fft.o
+.PHONY: all clean run-3node
 
-.PHONY: all stub clean run-3node
+# ─── Regla principal ──────────────────────────────────────────────────────────
+all: master worker
 
-# ─── Orden: stub primero, luego los binarios ──────────────────────────────────
-all: stub master worker
-
-# ─── libaudio.a (stub para desarrollo sin hardware) ──────────────────────────
-stub: libaudio.a
-
-$(SRC)/libaudio_stub.o: $(SRC)/libaudio_stub.c $(INC)/common.h
-	$(CC) $(CFLAGS) -c $< -o $@
-
-libaudio.a: $(SRC)/libaudio_stub.o
-	ar rcs $@ $<
-	@echo "[Makefile] libaudio.a (stub) lista"
-
-# ─── Módulos comunes ──────────────────────────────────────────────────────────
+# ─── Compilación de objetos individuales ─────────────────────────────────────
 $(SRC)/crypto.o: $(SRC)/crypto.c $(INC)/crypto.h $(INC)/common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(SRC)/fft.o: $(SRC)/fft.c $(INC)/fft.h $(INC)/common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# ─── Nodo Maestro ─────────────────────────────────────────────────────────────
+$(SRC)/libaudio_stub.o: $(SRC)/libaudio_stub.c $(INC)/common.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(SRC)/master.o: $(SRC)/master.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# NOTA: -lm y -laudio SIEMPRE al final (el linker resuelve de izquierda a derecha)
-master: $(SRC)/master.o $(COMMON_OBJS) libaudio.a
-	$(CC) -o $@ $(SRC)/master.o $(COMMON_OBJS) -L. -laudio -lm
-	@echo "[Makefile] Binary 'master' listo"
-
-# ─── Nodo Trabajador ──────────────────────────────────────────────────────────
 $(SRC)/worker.o: $(SRC)/worker.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-worker: $(SRC)/worker.o $(COMMON_OBJS)
-	$(CC) -o $@ $(SRC)/worker.o $(COMMON_OBJS) -lm
+# ─── Enlace: todos los .o explícitos, librerías AL FINAL ─────────────────────
+#
+# Se enlaza crypto.o y fft.o como objetos directos (NO como .a) para que
+# GNU ld no los descarte en el primer pase de resolución de símbolos.
+# libaudio_stub.o también se enlaza directo; -lm siempre al final.
+
+master: $(SRC)/master.o $(SRC)/crypto.o $(SRC)/fft.o $(SRC)/libaudio_stub.o
+	$(CC) -o $@ \
+	    $(SRC)/master.o \
+	    $(SRC)/crypto.o \
+	    $(SRC)/fft.o \
+	    $(SRC)/libaudio_stub.o \
+	    -lm
+	@echo "[Makefile] Binary 'master' listo"
+
+worker: $(SRC)/worker.o $(SRC)/crypto.o $(SRC)/fft.o
+	$(CC) -o $@ \
+	    $(SRC)/worker.o \
+	    $(SRC)/crypto.o \
+	    $(SRC)/fft.o \
+	    -lm
 	@echo "[Makefile] Binary 'worker' listo"
 
 # ─── Limpieza ─────────────────────────────────────────────────────────────────
@@ -66,9 +67,9 @@ clean:
 run-3node: all
 	@mkdir -p scripts
 	@printf "nodo1 slots=2\nnodo2 slots=1\nnodo3 slots=1\n" > scripts/hostfile
-	@printf '#!/bin/bash\n# Uso: ./scripts/run_cluster.sh archivo.wav\n' > scripts/run_cluster.sh
-	@printf '# Antes copiar binarios: scp master worker usuario@nodo2:~/\n' >> scripts/run_cluster.sh
-	@printf 'mpirun --hostfile scripts/hostfile -np 4 ./master "$$1"\n' >> scripts/run_cluster.sh
+	@printf '#!/bin/bash\n# Uso: ./scripts/run_cluster.sh archivo.wav\n' \
+	    > scripts/run_cluster.sh
+	@printf 'mpirun --hostfile scripts/hostfile -np 4 ./master "$$1"\n' \
+	    >> scripts/run_cluster.sh
 	@chmod +x scripts/run_cluster.sh
-	@echo "[Makefile] scripts/hostfile y scripts/run_cluster.sh generados"
-	@echo "Edita scripts/hostfile con los hostnames/IPs reales de tu clúster"
+	@echo "[Makefile] scripts/ generados. Edita hostfile con tus IPs."
