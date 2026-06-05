@@ -25,7 +25,7 @@
 #define SAMPLE_RATE         44100   /* Hz (estándar CD)                          */
 #define WINDOW_SIZE         2048    /* Muestras por ventana FFT (potencia de 2)  */
 #define HOP_SIZE            1024    /* Desplazamiento entre ventanas             */
-#define MAX_SEGMENT_BYTES   (1024 * 1024 * 8)  /* 8 MB máx por segmento        */
+/* Sin límite artificial de segmento: el tamaño lo dicta el archivo y N        */
 
 /* ─── Bandas de frecuencia (índices FFT) ─────────────────────────────────────*/
 #define BAND_SUBBASS_LO     20      /* Hz */
