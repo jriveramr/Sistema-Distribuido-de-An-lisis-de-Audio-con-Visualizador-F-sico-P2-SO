@@ -157,16 +157,6 @@ static int build_partitions(uint32_t total_bytes, uint16_t block_align,
         offset += parts[w].length_bytes;
     }
 
-    /* Verificar que no se supere MAX_SEGMENT_BYTES */
-    for (int w = 0; w < n_workers; ++w) {
-        if (parts[w].length_bytes > MAX_SEGMENT_BYTES) {
-            fprintf(stderr, "[master] Segmento %d demasiado grande (%u bytes). "
-                            "Aumenta n_workers o reduce el archivo.\n",
-                            w, parts[w].length_bytes);
-            free(parts);
-            return -1;
-        }
-    }
 
     *out       = parts;
     *out_count = n_workers;
@@ -282,36 +272,17 @@ static void consolidate_results(WorkerResult *results, int n_results,
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * MAIN del Maestro
+ * master_main — Lógica del maestro, invocado desde main.c cuando rank == 0.
+ * MPI ya está inicializado; NO llamar MPI_Init/Finalize aquí.
  * ══════════════════════════════════════════════════════════════════════════════*/
 
-int main(int argc, char *argv[])
+int master_main(int argc, char *argv[], int world_rank, int world_size)
 {
-    MPI_Init(&argc, &argv);
-
-    int world_rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-
-    /* Solo el proceso con rango MASTER_RANK ejecuta esta lógica */
-    if (world_rank != MASTER_RANK) {
-        fprintf(stderr, "[master] Error: master.c corriendo en rango %d\n",
-                world_rank);
-        MPI_Finalize();
-        return EXIT_FAILURE;
-    }
-
-    if (world_size < 2) {
-        fprintf(stderr, "[master] Se requieren al menos 2 procesos MPI "
-                        "(1 maestro + 1 trabajador). Encontrados: %d\n",
-                world_size);
-        MPI_Finalize();
-        return EXIT_FAILURE;
-    }
+    (void)world_rank;   /* Siempre es 0; parámetro para coherencia de firma */
 
     if (argc < 2) {
-        fprintf(stderr, "Uso: mpirun -np <N> ./master <archivo.wav>\n");
-        MPI_Finalize();
+        fprintf(stderr, "Uso: mpirun -np <N> ./audio_dist <archivo.wav>\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         return EXIT_FAILURE;
     }
 
@@ -520,7 +491,6 @@ int main(int argc, char *argv[])
     free(parts);
     free(results);
 
-    MPI_Finalize();
     printf("[master] Finalizado correctamente.\n");
     return EXIT_SUCCESS;
 }
