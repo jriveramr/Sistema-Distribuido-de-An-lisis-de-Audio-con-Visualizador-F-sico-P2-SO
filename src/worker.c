@@ -145,22 +145,13 @@ static int process_segment(const int16_t *pcm_mono, uint32_t n_samples,
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * MAIN del Trabajador
+ * worker_main — Lógica del trabajador, invocado desde main.c cuando rank >= 1.
+ * MPI ya está inicializado; NO llamar MPI_Init/Finalize aquí.
  * ══════════════════════════════════════════════════════════════════════════════*/
 
-int main(int argc, char *argv[])
+int worker_main(int world_rank, int world_size)
 {
-    MPI_Init(&argc, &argv);
-
-    int world_rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-
-    if (world_rank == MASTER_RANK) {
-        fprintf(stderr, "[worker] Error: worker.c corriendo en rango 0 (maestro)\n");
-        MPI_Finalize();
-        return EXIT_FAILURE;
-    }
+    (void)world_size;   /* Disponible si se necesita en el futuro */
 
     printf("[worker %d] Iniciado. Esperando segmento del maestro...\n",
            world_rank);
@@ -175,7 +166,6 @@ int main(int argc, char *argv[])
     if (rc != MPI_SUCCESS) {
         fprintf(stderr, "[worker %d] MPI_Recv META falló (%d)\n",
                 world_rank, rc);
-        MPI_Finalize();
         return EXIT_FAILURE;
     }
 
@@ -188,17 +178,15 @@ int main(int argc, char *argv[])
     uint32_t seg_bytes = meta.num_samples *
                          bytes_per_sample((uint16_t)meta.num_channels);
 
-    if (seg_bytes == 0 || seg_bytes > MAX_SEGMENT_BYTES) {
-        fprintf(stderr, "[worker %d] Tamaño de segmento inválido: %u bytes\n",
-                world_rank, seg_bytes);
-        MPI_Finalize();
+    if (seg_bytes == 0) {
+        fprintf(stderr, "[worker %d] Tamaño de segmento inválido: 0 bytes\n",
+                world_rank);
         return EXIT_FAILURE;
     }
 
     uint8_t *enc_buf = (uint8_t *)malloc(seg_bytes);
     if (!enc_buf) {
         fprintf(stderr, "[worker %d] malloc(%u) falló\n", world_rank, seg_bytes);
-        MPI_Finalize();
         return EXIT_FAILURE;
     }
 
@@ -209,7 +197,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[worker %d] MPI_Recv DATA falló (%d)\n",
                 world_rank, rc);
         free(enc_buf);
-        MPI_Finalize();
         return EXIT_FAILURE;
     }
 
@@ -245,7 +232,6 @@ int main(int argc, char *argv[])
         pcm_mono = stereo_to_mono(pcm_raw, n_frames);
         if (!pcm_mono) {
             free(enc_buf);
-            MPI_Finalize();
             return EXIT_FAILURE;
         }
         n_mono_samples = n_frames;
@@ -257,7 +243,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "[worker %d] Número de canales no soportado: %u\n",
                 world_rank, meta.num_channels);
         free(enc_buf);
-        MPI_Finalize();
         return EXIT_FAILURE;
     }
 
@@ -300,6 +285,5 @@ int main(int argc, char *argv[])
     free(enc_buf);
 
     printf("[worker %d] Finalizado correctamente.\n", world_rank);
-    MPI_Finalize();
     return EXIT_SUCCESS;
 }
