@@ -24,10 +24,10 @@ all: audio_dist
 $(SRC)/main.o: $(SRC)/main.c $(INC)/common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(SRC)/master.o: $(SRC)/master.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h
+$(SRC)/master.o: $(SRC)/master.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h $(INC)/sysmon.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(SRC)/worker.o: $(SRC)/worker.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h
+$(SRC)/worker.o: $(SRC)/worker.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h $(INC)/sysmon.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(SRC)/crypto.o: $(SRC)/crypto.c $(INC)/crypto.h $(INC)/common.h

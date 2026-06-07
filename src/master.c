@@ -23,6 +23,7 @@
 
 #define AUDIO_DEFINE_CLASS_NAMES
 #include "../include/common.h"
+#include "../include/sysmon.h"
 #include "../include/crypto.h"
 #include "../include/fft.h"
 
@@ -158,6 +159,16 @@ static int build_partitions(uint32_t total_bytes, uint16_t block_align,
     }
 
 
+    /* Verificar que ningún segmento supere INT_MAX (límite del count de MPI_Send) */
+    for (int w = 0; w < n_workers; ++w) {
+        if ((int64_t)parts[w].length_bytes > (int64_t)0x7FFFFFFF) {
+            fprintf(stderr, "[master] Segmento %d supera INT_MAX (%u bytes). "
+                            "Aumenta n_workers.\n", w, parts[w].length_bytes);
+            free(parts);
+            return -1;
+        }
+    }
+
     *out       = parts;
     *out_count = n_workers;
     return 0;
@@ -291,6 +302,7 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
 
     printf("[master] Iniciando con %d trabajador(es). Archivo: %s\n",
            n_workers, wav_path);
+    sysmon_print(0, "INICIO");
 
     /* ── 1. Abrir y analizar el archivo WAV ─────────────────────────────────*/
     FILE *wav_fp = fopen(wav_path, "rb");
@@ -373,6 +385,7 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
         return EXIT_FAILURE;
     }
 
+    sysmon_print(0, "PARTICIONAMIENTO");
     printf("[master] Particionamiento (%d segmentos):\n", n_parts);
     for (int i = 0; i < n_parts; ++i) {
         printf("  Segmento %d → offset=%u, length=%u bytes\n",
@@ -405,6 +418,7 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
 
         /* Enviar datos cifrados del segmento correspondiente */
         uint8_t *seg_ptr = enc_data + parts[w].offset_bytes;
+        /* Guard: MPI count is int; segments validated ≤ INT_MAX at partition time */
         rc = MPI_Send(seg_ptr, (int)parts[w].length_bytes, MPI_BYTE,
                       dest, TAG_SEGMENT_DATA, MPI_COMM_WORLD);
         if (rc != MPI_SUCCESS) {
@@ -447,6 +461,8 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
                results[w].bpm_estimate);
     }
 
+    sysmon_print(0, "RESULTADOS RECIBIDOS");
+
     /* ── 8. Notificar fin a todos los trabajadores ──────────────────────────*/
     int dummy = 0;
     for (int w = 1; w <= n_workers; ++w) {
@@ -466,7 +482,7 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
     printf("  Energía High         : %.4f\n",     global.energy_high);
     printf("  BPM estimado         : %.1f\n",     global.bpm_estimate);
     printf("  Clasificación        : %s\n",
-           AudioClassName[global.classification]);
+           AudioClassName[(int)global.classification < 4 ? global.classification : CLASS_NOISE]);
     printf("  Frame LED            : [%02X %02X %02X %02X %02X]\n",
            global.led_frame[0], global.led_frame[1], global.led_frame[2],
            global.led_frame[3], global.led_frame[4]);
@@ -491,6 +507,7 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
     free(parts);
     free(results);
 
+    sysmon_print(0, "FIN");
     printf("[master] Finalizado correctamente.\n");
     return EXIT_SUCCESS;
 }

@@ -263,7 +263,12 @@ double compute_bpm(const double *energies, size_t n_windows,
     size_t  n_peaks  = 0;
     int     cooldown = 0;
 
-    if (!peaks) { free(onset); return 0.0; }
+    if (!peaks) {
+        fprintf(stderr, "[fft] malloc peaks(%zu) falló\n",
+                n_windows * sizeof(size_t));
+        free(onset);
+        return 0.0;
+    }
 
     for (size_t i = 1; i + 1 < n_windows; ++i) {
         if (cooldown > 0) { --cooldown; continue; }

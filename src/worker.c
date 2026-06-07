@@ -21,6 +21,7 @@
 #include <mpi.h>
 
 #include "../include/common.h"
+#include "../include/sysmon.h"
 #include "../include/crypto.h"
 #include "../include/fft.h"
 
@@ -153,6 +154,7 @@ int worker_main(int world_rank, int world_size)
 {
     (void)world_size;   /* Disponible si se necesita en el futuro */
 
+    sysmon_print(world_rank, "INICIO");
     printf("[worker %d] Iniciado. Esperando segmento del maestro...\n",
            world_rank);
 
@@ -190,6 +192,11 @@ int worker_main(int world_rank, int world_size)
         return EXIT_FAILURE;
     }
 
+    if ((int64_t)seg_bytes > (int64_t)0x7FFFFFFF) {
+        fprintf(stderr, "[worker %d] seg_bytes supera INT_MAX\n", world_rank);
+        free(enc_buf);
+        return EXIT_FAILURE;
+    }
     rc = MPI_Recv(enc_buf, (int)seg_bytes, MPI_BYTE,
                   MASTER_RANK, TAG_SEGMENT_DATA,
                   MPI_COMM_WORLD, &status);
@@ -252,6 +259,7 @@ int worker_main(int world_rank, int world_size)
     result.worker_id     = world_rank;
     result.segment_index = meta.segment_index;
 
+    sysmon_print(world_rank, "FFT/ANÁLISIS");
     if (process_segment(pcm_mono, n_mono_samples,
                         meta.sample_rate, &result) != 0) {
         fprintf(stderr, "[worker %d] process_segment falló. "
@@ -284,6 +292,7 @@ int worker_main(int world_rank, int world_size)
     if (we_own_mono) free(pcm_mono);
     free(enc_buf);
 
+    sysmon_print(world_rank, "FIN");
     printf("[worker %d] Finalizado correctamente.\n", world_rank);
     return EXIT_SUCCESS;
 }
