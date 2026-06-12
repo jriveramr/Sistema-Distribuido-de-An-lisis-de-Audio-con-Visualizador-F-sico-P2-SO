@@ -3,12 +3,13 @@
 #
 # Genera UN SOLO binario (audio_dist) para todos los procesos MPI.
 # El proceso rango 0 actúa de maestro; los rangos >= 1 de trabajadores.
-# El maestro escribe al driver /dev/audiousb directamente con write().
+# El maestro usa libaudio.a para interactuar con el driver /dev/audiousb.
 #
 # Uso:
-#   make              — Compila audio_dist
-#   make clean        — Elimina objetos y binario
+#   make              — Compila libaudio.a y audio_dist
+#   make clean        — Elimina objetos, biblioteca y binario
 #   make run-3node    — Genera hostfile y script de clúster
+#   make driver       — Compila el módulo del kernel audiousb.ko
 # ──────────────────────────────────────────────────────────────────────────────
 
 CC     = mpicc
@@ -40,13 +41,23 @@ $(SRC)/crypto.o: $(SRC)/crypto.c $(INC)/crypto.h $(INC)/common.h
 $(SRC)/fft.o: $(SRC)/fft.c $(INC)/fft.h $(INC)/common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# ─── Enlace: sin libaudio.a — el maestro usa open()/write()/close() ──────────
+$(SRC)/audiousb_lib.o: $(SRC)/audiousb_lib.c $(INC)/audiousb_lib.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# ─── Biblioteca estática ──────────────────────────────────────────────────────
+libaudio.a: $(SRC)/audiousb_lib.o
+	ar rcs $@ $^
+	@echo "[Makefile] Biblioteca 'libaudio.a' generada"
+
+# ─── Enlace final ─────────────────────────────────────────────────────────────
 audio_dist: $(SRC)/main.o \
             $(SRC)/master.o \
             $(SRC)/worker.o \
             $(SRC)/crypto.o \
-            $(SRC)/fft.o
-	$(CC) -o $@ $^ -lm
+            $(SRC)/fft.o \
+            libaudio.a
+	$(CC) -o $@ $(SRC)/main.o $(SRC)/master.o $(SRC)/worker.o \
+	            $(SRC)/crypto.o $(SRC)/fft.o -L. -laudio -lm
 	@echo "[Makefile] Binary 'audio_dist' listo"
 	@echo "Ejecutar: mpirun -np 4 ./audio_dist archivo.wav"
 

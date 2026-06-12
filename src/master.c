@@ -8,7 +8,7 @@
  *   4. Guardar en disco el archivo cifrado y el descifrado.
  *   5. Recibir resultados parciales de cada trabajador con MPI_Recv.
  *   6. Consolidar, clasificar y generar el frame LED de 7 columnas.
- *   7. Enviar el frame a /dev/audiousb con open()/write()/close().
+ *   7. Enviar el frame a /dev/audiousb a través de libaudio.a.
  *   8. Notificar a los trabajadores que terminen.
  ******************************************************************************/
 
@@ -18,8 +18,6 @@
 #include <stdint.h>
 #include <math.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
 
 #include <mpi.h>
 
@@ -28,9 +26,7 @@
 #include "../include/sysmon.h"
 #include "../include/crypto.h"
 #include "../include/fft.h"
-
-/* ─── Ruta del dispositivo USB del driver del kernel ───────────────────────*/
-#define AUDIOUSB_DEV   "/dev/audiousb"
+#include "../include/audiousb_lib.h"
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * Lectura del header WAV y búsqueda del chunk "data"
@@ -488,75 +484,12 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
            global.led_frame[5], global.led_frame[6]);
     printf("═══════════════════════════════════════════════\n\n");
 
-    /* ── 10. Enviar frame a la matriz LED y leer confirmación del Arduino ──────
-     *
-     * El driver audiousb.c expone /dev/audiousb con endpoints bulk OUT e IN.
-     * Flujo:
-     *   1. open()  — abre el dispositivo en modo lectura+escritura
-     *   2. write() — envía los 7 bytes del frame al Arduino vía USB bulk OUT
-     *   3. read()  — espera la confirmación del Arduino vía USB bulk IN
-     *   4. close() — libera el file descriptor
-     * ─────────────────────────────────────────────────────────────────────────*/
+    /* ── 10. Enviar frame a la matriz LED vía libaudio.a ───────────────────────*/
     {
-        /* Abrir en O_RDWR para poder escribir Y leer en el mismo fd */
-        int fd = open(AUDIOUSB_DEV, O_RDWR);
-        if (fd < 0) {
-            fprintf(stderr, "[master] No se pudo abrir %s: %s\n",
-                    AUDIOUSB_DEV, strerror(errno));
-            fprintf(stderr, "[master] Advertencia: driver no cargado. "
-                            "Ejecuta: sudo insmod audiousb.ko\n");
-        } else {
-
-            /* ── Escritura: enviar frame de 7 bytes al Arduino ──────────────*/
-            ssize_t written = write(fd, global.led_frame, LED_COLS);
-            if (written != (ssize_t)LED_COLS) {
-                fprintf(stderr, "[master] Error en write(): "
-                                "esperados %d bytes, escritos %zd: %s\n",
-                                LED_COLS, written, strerror(errno));
-            } else {
-                printf("[master] Frame [%d %d %d %d %d %d %d] "
-                       "enviado a %s correctamente.\n",
-                       global.led_frame[0], global.led_frame[1],
-                       global.led_frame[2], global.led_frame[3],
-                       global.led_frame[4], global.led_frame[5],
-                       global.led_frame[6], AUDIOUSB_DEV);
-
-                /* ── Lectura: esperar confirmación del Arduino ───────────────
-                 * El Arduino responde con un byte de estado tras encender
-                 * los LEDs. El driver lo recibe por USB bulk IN y lo
-                 * entrega aquí vía read().
-                 * Valor esperado: 0x01 = éxito, cualquier otro = error.    */
-                unsigned char ack_buf[64];
-                ssize_t n_read = read(fd, ack_buf, sizeof(ack_buf));
-                if (n_read < 0) {
-                    fprintf(stderr, "[master] Error en read() esperando ACK "
-                                    "del Arduino: %s\n", strerror(errno));
-                } else if (n_read == 0) {
-                    fprintf(stderr, "[master] Arduino no envió respuesta "
-                                    "(read devolvió 0 bytes)\n");
-                } else {
-                    printf("[master] ACK del Arduino: %zd byte(s) recibidos, "
-                           "primer byte = 0x%02X\n", n_read, ack_buf[0]);
-                    if (ack_buf[0] == 0x01) {
-                        printf("[master] Arduino confirmó: LEDs actualizados "
-                               "correctamente.\n");
-                        if (n_read > 1) {
-                            ack_buf[n_read] = '\0';
-                            printf("[master] Mensaje Arduino: %s",
-                                   (char *)(ack_buf + 1));
-                        }
-                    } else {
-                        fprintf(stderr, "[master] Arduino reportó error: "
-                                        "código 0x%02X\n", ack_buf[0]);
-                    }
-                }
-            }
-
-            /* ── Cierre del dispositivo ─────────────────────────────────────*/
-            if (close(fd) != 0) {
-                fprintf(stderr, "[master] Error cerrando %s: %s\n",
-                        AUDIOUSB_DEV, strerror(errno));
-            }
+        int fd = audiousb_open(AUDIOUSB_DEV);
+        if (fd >= 0) {
+            audiousb_send_frame(fd, global.led_frame, LED_COLS);
+            audiousb_close(fd);
         }
     }
 
