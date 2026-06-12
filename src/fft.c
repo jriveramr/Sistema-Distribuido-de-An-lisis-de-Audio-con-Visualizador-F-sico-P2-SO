@@ -309,9 +309,28 @@ void build_led_frame(double energy_subbass, double energy_mid,
                      double rms_amplitude,
                      uint8_t frame[LED_COLS])
 {
+    /*
+     * Matriz 7x7 — el driver espera 7 bytes, uno por columna.
+     * Cada byte es un nivel entero en [0, 7] que indica cuántas
+     * filas encender desde abajo (coincide con MAX_LEVEL del driver).
+     *
+     * Columnas:
+     *   0 = Sub-bass      (20-250 Hz)
+     *   1 = Mid-low       (250-500 Hz)   ← sub-banda del mid
+     *   2 = Mid           (500-1000 Hz)  ← sub-banda del mid
+     *   3 = Mid-high      (1000-2000 Hz) ← sub-banda del mid
+     *   4 = Upper-mid     (2000-6000 Hz)
+     *   5 = High          (6000-20000 Hz)
+     *   6 = Amplitud RMS
+     *
+     * Las columnas 1-3 subdividen la banda mid en tercios para
+     * aprovechar las 7 columnas disponibles.
+     */
     double values[LED_COLS] = {
         energy_subbass,
-        energy_mid,
+        energy_mid * 0.33,   /* tercio bajo del mid  */
+        energy_mid * 0.34,   /* tercio medio del mid */
+        energy_mid * 0.33,   /* tercio alto del mid  */
         energy_uppermid,
         energy_high,
         rms_amplitude
@@ -322,14 +341,10 @@ void build_led_frame(double energy_subbass, double energy_mid,
         if (v < 0.0) v = 0.0;
         if (v > 1.0) v = 1.0;
 
-        /* Cuántas filas encender (0–5) */
-        int rows_on = (int)(v * (double)LED_ROWS + 0.5);
-        if (rows_on > LED_ROWS) rows_on = LED_ROWS;
+        /* Nivel entero 0-7: número de LEDs encendidos desde abajo */
+        int level = (int)(v * (double)LED_ROWS + 0.5);
+        if (level > LED_ROWS) level = LED_ROWS;
 
-        uint8_t byte = 0;
-        for (int r = 0; r < rows_on; ++r)
-            byte |= (uint8_t)(1u << r);
-
-        frame[col] = byte;
+        frame[col] = (uint8_t)level;
     }
 }

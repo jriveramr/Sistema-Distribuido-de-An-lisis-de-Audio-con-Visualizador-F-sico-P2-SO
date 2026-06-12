@@ -3,6 +3,7 @@
 #
 # Genera UN SOLO binario (audio_dist) para todos los procesos MPI.
 # El proceso rango 0 actúa de maestro; los rangos >= 1 de trabajadores.
+# El maestro escribe al driver /dev/audiousb directamente con write().
 #
 # Uso:
 #   make              — Compila audio_dist
@@ -15,6 +16,7 @@ CFLAGS = -Wall -Wextra -O2 -std=c99 -Iinclude
 
 SRC = src
 INC = include
+DRIVER_DIR = Driver
 
 .PHONY: all clean run-3node
 
@@ -24,10 +26,12 @@ all: audio_dist
 $(SRC)/main.o: $(SRC)/main.c $(INC)/common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(SRC)/master.o: $(SRC)/master.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h $(INC)/sysmon.h
+$(SRC)/master.o: $(SRC)/master.c $(INC)/common.h $(INC)/crypto.h \
+                 $(INC)/fft.h $(INC)/sysmon.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(SRC)/worker.o: $(SRC)/worker.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h $(INC)/sysmon.h
+$(SRC)/worker.o: $(SRC)/worker.c $(INC)/common.h $(INC)/crypto.h \
+                 $(INC)/fft.h $(INC)/sysmon.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(SRC)/crypto.o: $(SRC)/crypto.c $(INC)/crypto.h $(INC)/common.h
@@ -36,16 +40,12 @@ $(SRC)/crypto.o: $(SRC)/crypto.c $(INC)/crypto.h $(INC)/common.h
 $(SRC)/fft.o: $(SRC)/fft.c $(INC)/fft.h $(INC)/common.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(SRC)/libaudio_stub.o: $(SRC)/libaudio_stub.c $(INC)/common.h
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# ─── Enlace: un solo binario, todos los .o explícitos, -lm al final ───────────
+# ─── Enlace: sin libaudio.a — el maestro usa open()/write()/close() ──────────
 audio_dist: $(SRC)/main.o \
             $(SRC)/master.o \
             $(SRC)/worker.o \
             $(SRC)/crypto.o \
-            $(SRC)/fft.o \
-            $(SRC)/libaudio_stub.o
+            $(SRC)/fft.o
 	$(CC) -o $@ $^ -lm
 	@echo "[Makefile] Binary 'audio_dist' listo"
 	@echo "Ejecutar: mpirun -np 4 ./audio_dist archivo.wav"
@@ -54,6 +54,7 @@ audio_dist: $(SRC)/main.o \
 clean:
 	rm -f $(SRC)/*.o audio_dist libaudio.a
 	rm -f audio_plain.raw audio_encrypted.raw
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD)/$(DRIVER_DIR) clean
 	@echo "[Makefile] Limpieza completa"
 
 # ─── Clúster 3 nodos físicos ──────────────────────────────────────────────────
@@ -69,3 +70,10 @@ run-3node: all
 	@chmod +x scripts/run_cluster.sh
 	@echo "[Makefile] Edita scripts/hostfile con tus IPs y ejecuta:"
 	@echo "           ./scripts/run_cluster.sh archivo.wav"
+
+
+
+driver:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD)/$(DRIVER_DIR) modules
+
+	

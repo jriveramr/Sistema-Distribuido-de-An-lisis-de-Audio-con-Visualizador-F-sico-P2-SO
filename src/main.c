@@ -5,7 +5,7 @@
  * El proceso con rango 0 ejecuta la lógica de maestro.
  * Los procesos con rango >= 1 ejecutan la lógica de trabajador.
  *
- * Esto es el patrón correcto para mpirun: todos los nodos lanzan el mismo
+ * Todos los nodos lanzan el mismo
  * ejecutable y cada uno descubre su rol mediante MPI_Comm_rank.
  ******************************************************************************/
 
