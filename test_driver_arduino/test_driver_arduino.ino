@@ -28,6 +28,7 @@ uint32_t color_por_fila(int fila) {
 
 void mostrar(uint8_t columnas[]) {
     strip.clear();
+    Serial.println("Ajustando LEDS");
     for (int col = 0; col < COLUMNAS; col++) {
         for (int fila = 0; fila < columnas[col]; fila++) {
             int idx = led_index(col, fila);

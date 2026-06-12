@@ -8,8 +8,8 @@
  * Se registra como dispositivo de caracteres en /dev/audiousb.
  *
  * Flujo de datos:
- *   Biblioteca (espacio de usuario) -> write() -> Driver (kernel)
- *   -> usb_bulk_msg() -> Bus USB -> Arduino -> Matriz LEDs 7x7
+ *   Escritura: Biblioteca -> write() -> Driver -> usb_bulk_msg() -> Arduino
+ *   Lectura:   Arduino -> usb_bulk_msg() -> Driver -> read() -> Biblioteca
  */
 
 #include <linux/module.h>
@@ -26,14 +26,18 @@
 #define BUFFER_SIZE          64
 #define AUDIOUSB_FRAME_SIZE  7      /* 7 bytes: uno por columna */
 #define MAX_LEVEL            7      /* Nivel máximo por columna (7 filas) */
-#define USB_TIMEOUT          5000   /* Timeout en milisegundos */
+#define USB_TIMEOUT_WRITE    5000   /* Timeout de escritura en ms */
+#define USB_TIMEOUT_READ     2000   /* Timeout de lectura en ms */
 
 /* Estructura del dispositivo */
 struct audiousb_device {
     struct usb_device       *udev;
     struct usb_interface    *interface;
     unsigned char           *bulk_out_buffer;
+    unsigned char           *bulk_in_buffer;
     __u8                    bulk_out_endpoint;
+    __u8                    bulk_in_endpoint;
+    int                     bulk_in_size;
     struct usb_class_driver class;
 };
 
@@ -92,7 +96,6 @@ static ssize_t audiousb_write(struct file *file, const char __user *user_buf,
 
     to_send = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
 
-    /* Copiar datos del espacio de usuario al buffer del kernel */
     if (copy_from_user(dev->bulk_out_buffer, user_buf, to_send))
         return -EFAULT;
 
@@ -110,13 +113,12 @@ static ssize_t audiousb_write(struct file *file, const char __user *user_buf,
         }
     }
 
-    /* Enviar por USB al Arduino */
     ret = usb_bulk_msg(dev->udev,
                        usb_sndbulkpipe(dev->udev, dev->bulk_out_endpoint),
                        dev->bulk_out_buffer,
                        to_send,
                        &actual_length,
-                       USB_TIMEOUT);
+                       USB_TIMEOUT_WRITE);
 
     if (ret) {
         pr_err("audiousb: error enviando datos (%d)\n", ret);
@@ -124,6 +126,48 @@ static ssize_t audiousb_write(struct file *file, const char __user *user_buf,
     }
 
     pr_info("audiousb: se enviaron %d bytes al Arduino\n", actual_length);
+    return actual_length;
+}
+
+/*
+ * Se ejecuta cuando la biblioteca lee del dispositivo.
+ * Lee datos que el Arduino manda de vuelta por USB.
+ */
+static ssize_t audiousb_read(struct file *file, char __user *user_buf,
+                              size_t count, loff_t *ppos)
+{
+    struct audiousb_device *dev;
+    int ret;
+    int actual_length;
+    int to_read;
+
+    dev = file->private_data;
+    if (!dev)
+        return -ENODEV;
+
+    if (!dev->bulk_in_endpoint) {
+        pr_err("audiousb: no hay endpoint de entrada\n");
+        return -ENODEV;
+    }
+
+    to_read = (count > BUFFER_SIZE) ? BUFFER_SIZE : count;
+
+    ret = usb_bulk_msg(dev->udev,
+                       usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpoint),
+                       dev->bulk_in_buffer,
+                       to_read,
+                       &actual_length,
+                       USB_TIMEOUT_READ);
+
+    if (ret) {
+        pr_err("audiousb: error leyendo datos (%d)\n", ret);
+        return ret;
+    }
+
+    if (copy_to_user(user_buf, dev->bulk_in_buffer, actual_length))
+        return -EFAULT;
+
+    pr_info("audiousb: se leyeron %d bytes del Arduino\n", actual_length);
     return actual_length;
 }
 
@@ -138,6 +182,7 @@ static struct file_operations audiousb_fops = {
     .owner   = THIS_MODULE,
     .open    = audiousb_open,
     .write   = audiousb_write,
+    .read    = audiousb_read,
     .release = audiousb_release,
 };
 
@@ -160,13 +205,17 @@ static int audiousb_probe(struct usb_interface *interface,
     dev->udev = usb_get_dev(interface_to_usbdev(interface));
     dev->interface = interface;
 
-    /* Buscar endpoint bulk OUT */
+    /* Buscar endpoints bulk OUT e IN */
     for (i = 0; i < interface->cur_altsetting->desc.bNumEndpoints; i++) {
         endpoint = &interface->cur_altsetting->endpoint[i].desc;
 
-        if (usb_endpoint_is_bulk_out(endpoint)) {
+        if (usb_endpoint_is_bulk_out(endpoint) && !dev->bulk_out_endpoint) {
             dev->bulk_out_endpoint = endpoint->bEndpointAddress;
-            break;
+        }
+
+        if (usb_endpoint_is_bulk_in(endpoint) && !dev->bulk_in_endpoint) {
+            dev->bulk_in_endpoint = endpoint->bEndpointAddress;
+            dev->bulk_in_size = usb_endpoint_maxp(endpoint);
         }
     }
 
@@ -176,10 +225,22 @@ static int audiousb_probe(struct usb_interface *interface,
         return -ENODEV;
     }
 
+    /* Reservar buffer de salida */
     dev->bulk_out_buffer = kzalloc(BUFFER_SIZE, GFP_KERNEL);
     if (!dev->bulk_out_buffer) {
         kfree(dev);
         return -ENOMEM;
+    }
+
+    /* Reservar buffer de entrada si hay endpoint IN */
+    if (dev->bulk_in_endpoint) {
+        dev->bulk_in_buffer = kzalloc(BUFFER_SIZE, GFP_KERNEL);
+        if (!dev->bulk_in_buffer) {
+            kfree(dev->bulk_out_buffer);
+            kfree(dev);
+            return -ENOMEM;
+        }
+        pr_info("audiousb: endpoint IN encontrado (0x%02x)\n", dev->bulk_in_endpoint);
     }
 
     dev->class.name = DEVICE_NAME "%d";
@@ -188,6 +249,7 @@ static int audiousb_probe(struct usb_interface *interface,
     ret = usb_register_dev(interface, &dev->class);
     if (ret) {
         pr_err("audiousb: no se pudo registrar el char device\n");
+        kfree(dev->bulk_in_buffer);
         kfree(dev->bulk_out_buffer);
         kfree(dev);
         return ret;
@@ -195,8 +257,8 @@ static int audiousb_probe(struct usb_interface *interface,
 
     usb_set_intfdata(interface, dev);
 
-    pr_info("audiousb: Arduino conectado (minor=%d, endpoint=0x%02x)\n",
-            interface->minor, dev->bulk_out_endpoint);
+    pr_info("audiousb: Arduino conectado (minor=%d, out=0x%02x, in=0x%02x)\n",
+            interface->minor, dev->bulk_out_endpoint, dev->bulk_in_endpoint);
     return 0;
 }
 
@@ -210,6 +272,7 @@ static void audiousb_disconnect(struct usb_interface *interface)
 
     usb_deregister_dev(interface, &dev->class);
 
+    kfree(dev->bulk_in_buffer);
     kfree(dev->bulk_out_buffer);
     usb_put_dev(dev->udev);
     kfree(dev);
