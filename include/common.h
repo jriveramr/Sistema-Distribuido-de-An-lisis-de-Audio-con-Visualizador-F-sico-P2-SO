@@ -38,8 +38,8 @@
 #define BAND_HIGH_HI        20000   /* Hz */
 
 /* ─── LED matrix ─────────────────────────────────────────────────────────────*/
-#define LED_COLS            5
-#define LED_ROWS            5
+#define LED_COLS            7       /* Columnas (driver: AUDIOUSB_FRAME_SIZE) */
+#define LED_ROWS            7       /* Filas    (driver: MAX_LEVEL)           */
 
 /* ─── Cifrado XOR ────────────────────────────────────────────────────────────*/
 #define XOR_KEY_LEN         16
