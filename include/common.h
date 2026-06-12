@@ -25,7 +25,6 @@
 #define SAMPLE_RATE         44100   /* Hz (estándar CD)                          */
 #define WINDOW_SIZE         2048    /* Muestras por ventana FFT (potencia de 2)  */
 #define HOP_SIZE            1024    /* Desplazamiento entre ventanas             */
-/* Sin límite artificial de segmento: el tamaño lo dicta el archivo y N        */
 
 /* ─── Bandas de frecuencia (índices FFT) ─────────────────────────────────────*/
 #define BAND_SUBBASS_LO     20      /* Hz */
@@ -37,9 +36,18 @@
 #define BAND_HIGH_LO        6000    /* Hz */
 #define BAND_HIGH_HI        20000   /* Hz */
 
-/* ─── LED matrix ─────────────────────────────────────────────────────────────*/
-#define LED_COLS            5
-#define LED_ROWS            5
+/* ─── LED matrix — ACTUALIZADO a 7x7 ─────────────────────────────────────────*/
+#define LED_COLS            7       /* 7 columnas: 4 bandas + RMS + (nuevas)    */
+#define LED_ROWS            7       /* 7 filas: resolución aumentada            */
+
+/* Mapeo de columnas para matriz 7x7: */
+/*   Col 0: Sub-bass  (20-250 Hz)    */
+/*   Col 1: Mid       (250-2000 Hz)  */
+/*   Col 2: Upper-mid (2000-6000 Hz) */
+/*   Col 3: High      (6000-20000 Hz) */
+/*   Col 4: RMS       (amplitud global) */
+/*   Col 5: BPM (opcional, intensidad rítmica) */
+/*   Col 6: Clasificación (codificada como nivel) */
 
 /* ─── Cifrado XOR ────────────────────────────────────────────────────────────*/
 #define XOR_KEY_LEN         16
@@ -101,7 +109,7 @@ typedef struct {
     double   energy_uppermid;   /* Energía relativa upper-mid [0,1]    */
     double   energy_high;       /* Energía relativa high [0,1]         */
     double   bpm_estimate;      /* BPM estimado (0 si no detectable)   */
-    uint8_t  spectrogram[LED_COLS]; /* Columnas para la matriz LED [0..4] */
+    uint8_t  spectrogram[LED_COLS]; /* Columnas para la matriz LED 7x7 */
 } WorkerResult;
 
 /* ─── Resultado global consolidado por el maestro ────────────────────────────*/
@@ -114,7 +122,7 @@ typedef struct {
     double      energy_high;
     double      bpm_estimate;
     AudioClass  classification;
-    uint8_t     led_frame[LED_COLS];
+    uint8_t     led_frame[LED_COLS];  /* Ahora 7 columnas */
 } GlobalResult;
 
 /* ─── Número de bytes PCM por muestra (16-bit mono o stereo) ─────────────────*/

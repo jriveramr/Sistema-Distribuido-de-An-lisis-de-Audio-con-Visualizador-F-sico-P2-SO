@@ -1,5 +1,7 @@
 /*******************************************************************************
  * fft.c — Implementación FFT Cooley–Tukey radix-2 DIT y análisis de audio
+ * 
+ * Matriz LED 7x7
  ******************************************************************************/
 
 #include <stdio.h>
@@ -213,10 +215,11 @@ int analyze_window(const int16_t *pcm, size_t n_samples,
         out->energy_high     = 0.0;
     }
 
-    /* Frame LED de la ventana individual (será sobreescrito por el maestro) */
-    build_led_frame(out->energy_subbass, out->energy_mid,
-                    out->energy_uppermid, out->energy_high,
-                    out->rms_amplitude, out->spectrogram);
+    /* Frame LED de la ventana individual (usando valores por defecto para BPM y class) */
+    build_led_frame_ext(out->energy_subbass, out->energy_mid,
+                        out->energy_uppermid, out->energy_high,
+                        out->rms_amplitude, 0.0, 0.0,
+                        out->spectrogram);
 
     free(mag);
     free(buf);
@@ -299,22 +302,25 @@ double compute_bpm(const double *energies, size_t n_windows,
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
- * Construcción del frame LED (5 columnas × 5 filas)
+ * build_led_frame_ext — Construcción del frame LED 7x7 (7 columnas × 7 filas)
  *
- * Columnas:  0=Sub-bass | 1=Mid | 2=Upper-mid | 3=High | 4=RMS
- * Filas:     bit 0 = fila baja ... bit 4 = fila alta
+ * Columnas:  0=Sub-bass | 1=Mid | 2=Upper-mid | 3=High | 4=RMS | 5=BPM | 6=Class
+ * Filas:     bit 0 = fila baja (menor intensidad)
+ *            bit 6 = fila alta (mayor intensidad)
  * ══════════════════════════════════════════════════════════════════════════════*/
-void build_led_frame(double energy_subbass, double energy_mid,
-                     double energy_uppermid, double energy_high,
-                     double rms_amplitude,
-                     uint8_t frame[LED_COLS])
+void build_led_frame_ext(double energy_subbass, double energy_mid,
+                         double energy_uppermid, double energy_high,
+                         double rms_amplitude, double bpm_norm,
+                         double class_value, uint8_t frame[LED_COLS])
 {
     double values[LED_COLS] = {
         energy_subbass,
         energy_mid,
         energy_uppermid,
         energy_high,
-        rms_amplitude
+        rms_amplitude,
+        bpm_norm,
+        class_value
     };
 
     for (int col = 0; col < LED_COLS; ++col) {
@@ -322,7 +328,7 @@ void build_led_frame(double energy_subbass, double energy_mid,
         if (v < 0.0) v = 0.0;
         if (v > 1.0) v = 1.0;
 
-        /* Cuántas filas encender (0–5) */
+        /* Cuántas filas encender (0-7) */
         int rows_on = (int)(v * (double)LED_ROWS + 0.5);
         if (rows_on > LED_ROWS) rows_on = LED_ROWS;
 

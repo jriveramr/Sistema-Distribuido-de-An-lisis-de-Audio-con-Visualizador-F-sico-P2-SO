@@ -7,9 +7,10 @@
  *   3. Cifrar cada segmento con XOR rotativo y enviarlo vía MPI_Send.
  *   4. Guardar en disco el archivo cifrado y el descifrado.
  *   5. Recibir resultados parciales de cada trabajador con MPI_Recv.
- *   6. Consolidar, clasificar y generar el frame LED de 5 columnas.
+ *   6. Consolidar, clasificar y generar el frame LED de 7 columnas.
  *   7. Enviar el frame a la matriz LED mediante libaudio.a (/dev/audiousb).
- *   8. Notificar a los trabajadores que terminen.
+ *   8. Leer y mostrar la respuesta del Arduino por USB.
+ *   9. Notificar a los trabajadores que terminen.
  ******************************************************************************/
 
 #include <stdio.h>
@@ -26,12 +27,7 @@
 #include "../include/sysmon.h"
 #include "../include/crypto.h"
 #include "../include/fft.h"
-
-/* ─── Prototipo de libaudio.a (interacción con /dev/audiousb) ──────────────*/
-/* Declaramos extern para enlazar con libaudio.a sin su header propio.        */
-extern int  audiousb_open(void);
-extern int  audiousb_send_frame(const uint8_t frame[LED_COLS]);
-extern void audiousb_close(void);
+#include "../include/audiousb.h"
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * Lectura del header WAV y búsqueda del chunk "data"
@@ -158,7 +154,6 @@ static int build_partitions(uint32_t total_bytes, uint16_t block_align,
         offset += parts[w].length_bytes;
     }
 
-
     /* Verificar que ningún segmento supere INT_MAX (límite del count de MPI_Send) */
     for (int w = 0; w < n_workers; ++w) {
         if ((int64_t)parts[w].length_bytes > (int64_t)0x7FFFFFFF) {
@@ -276,10 +271,21 @@ static void consolidate_results(WorkerResult *results, int n_results,
         }
     }
 
-    /* ── Frame LED global ───────────────────────────────────────────────────── */
-    build_led_frame(global->energy_subbass,  global->energy_mid,
-                    global->energy_uppermid, global->energy_high,
-                    global->rms_amplitude,   global->led_frame);
+    /* ── Frame LED 7x7 global ───────────────────────────────────────────────── */
+    /* Normalizar BPM para el rango 60-180 BPM a [0,1] */
+    double bpm_norm = 0.0;
+    if (global->bpm_estimate > 60.0 && global->bpm_estimate < 180.0) {
+        bpm_norm = (global->bpm_estimate - 60.0) / 120.0;
+        if (bpm_norm > 1.0) bpm_norm = 1.0;
+    }
+    
+    /* Normalizar clasificación a [0,1] para mostrar en columna 6 */
+    double class_norm = (double)global->classification / 3.0;
+    
+    build_led_frame_ext(global->energy_subbass,  global->energy_mid,
+                        global->energy_uppermid, global->energy_high,
+                        global->rms_amplitude,   bpm_norm,
+                        class_norm,              global->led_frame);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -463,42 +469,91 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
 
     sysmon_print(0, "RESULTADOS RECIBIDOS");
 
-    /* ── 8. Notificar fin a todos los trabajadores ──────────────────────────*/
-    int dummy = 0;
-    for (int w = 1; w <= n_workers; ++w) {
-        MPI_Send(&dummy, 1, MPI_INT, w, TAG_TERMINATE, MPI_COMM_WORLD);
-    }
-
-    /* ── 9. Consolidar resultados y clasificar ──────────────────────────────*/
+    /* ── 8. Consolidar resultados y clasificar ──────────────────────────────*/
     GlobalResult global;
     consolidate_results(results, received, &global);
 
-    printf("\n[master] ══════════ RESULTADO GLOBAL ══════════\n");
-    printf("  Frecuencia dominante : %.2f Hz\n",  global.dominant_freq);
-    printf("  Amplitud RMS         : %.4f\n",     global.rms_amplitude);
-    printf("  Energía Sub-bass     : %.4f\n",     global.energy_subbass);
-    printf("  Energía Mid          : %.4f\n",     global.energy_mid);
-    printf("  Energía Upper-mid    : %.4f\n",     global.energy_uppermid);
-    printf("  Energía High         : %.4f\n",     global.energy_high);
-    printf("  BPM estimado         : %.1f\n",     global.bpm_estimate);
-    printf("  Clasificación        : %s\n",
+    printf("\n[master] ═══════════════════════════════════════════════════════\n");
+    printf("[master]                 RESULTADO GLOBAL                         \n");
+    printf("[master] ═══════════════════════════════════════════════════════\n");
+    printf("[master]   Frecuencia dominante : %.2f Hz\n",  global.dominant_freq);
+    printf("[master]   Amplitud RMS         : %.4f\n",     global.rms_amplitude);
+    printf("[master]   Energía Sub-bass     : %.4f\n",     global.energy_subbass);
+    printf("[master]   Energía Mid          : %.4f\n",     global.energy_mid);
+    printf("[master]   Energía Upper-mid    : %.4f\n",     global.energy_uppermid);
+    printf("[master]   Energía High         : %.4f\n",     global.energy_high);
+    printf("[master]   BPM estimado         : %.1f\n",     global.bpm_estimate);
+    printf("[master]   Clasificación        : %s\n",
            AudioClassName[(int)global.classification < 4 ? global.classification : CLASS_NOISE]);
-    printf("  Frame LED            : [%02X %02X %02X %02X %02X]\n",
+    printf("[master]   Frame LED 7x7        : [%02X %02X %02X %02X %02X %02X %02X]\n",
            global.led_frame[0], global.led_frame[1], global.led_frame[2],
-           global.led_frame[3], global.led_frame[4]);
-    printf("═══════════════════════════════════════════════\n\n");
+           global.led_frame[3], global.led_frame[4], global.led_frame[5],
+           global.led_frame[6]);
+    printf("[master] ═══════════════════════════════════════════════════════\n\n");
 
-    /* ── 10. Enviar frame a la matriz LED vía libaudio.a ────────────────────*/
+    /* ── 9. Enviar frame a la matriz LED 7x7 vía libaudio.a y leer respuesta ──*/
+    printf("[master] Enviando frame 7x7 a la matriz LED...\n");
+
     if (audiousb_open() == 0) {
+        /* Primero, limpiar cualquier dato pendiente en el buffer */
+        audiousb_flush();
+        
+        /* Enviar el frame */
         if (audiousb_send_frame(global.led_frame) != 0) {
             fprintf(stderr, "[master] Error enviando frame al hardware LED\n");
         } else {
-            printf("[master] Frame enviado a la matriz LED correctamente.\n");
+            printf("[master] Frame enviado correctamente.\n");
+            
+            /* ── Leer respuesta del Arduino ──────────────────────────────────*/
+            printf("[master] Esperando respuesta del Arduino...\n");
+            
+            uint8_t arduino_response[64];
+            ssize_t resp_len = audiousb_read_response(arduino_response, sizeof(arduino_response));
+            
+            if (resp_len > 0) {
+                printf("[master] Arduino respondió (%zd bytes):\n", resp_len);
+                printf("[master]   ");
+                for (ssize_t i = 0; i < resp_len; i++) {
+                    printf("0x%02X ", arduino_response[i]);
+                    if ((i + 1) % 16 == 0 && i + 1 < resp_len) {
+                        printf("\n[master]   ");
+                    }
+                }
+                printf("\n");
+                
+                /* Verificar si es un ACK (0x01) o NACK (0x00) */
+                if (resp_len >= 1 && arduino_response[0] == 0x01) {
+                    printf("[master] ✓ Arduino confirmó recepción correcta (ACK)\n");
+                } else if (resp_len >= 1 && arduino_response[0] == 0x00) {
+                    printf("[master] ✗ Arduino reportó error (NACK)\n");
+                } else {
+                    printf("[master] Respuesta inesperada del Arduino\n");
+                }
+            } else if (resp_len == 0) {
+                printf("[master] No se recibió respuesta del Arduino\n");
+            } else {
+                printf("[master] Error al leer respuesta del Arduino\n");
+            }
+            
+            /* Esperar confirmación adicional si está disponible */
+            int ack = audiousb_wait_ack();
+            if (ack == 1) {
+                printf("[master] Confirmación ACK adicional recibida\n");
+            } else if (ack == 0) {
+                printf("[master] NACK adicional recibido - posible error en el Arduino\n");
+            }
         }
+        
         audiousb_close();
     } else {
         fprintf(stderr, "[master] Advertencia: no se pudo abrir /dev/audiousb. "
-                        "¿Está el driver cargado?\n");
+                        "¿Está el driver cargado y el Arduino conectado?\n");
+    }
+
+    /* ── 10. Notificar fin a todos los trabajadores ─────────────────────────*/
+    int dummy = 0;
+    for (int w = 1; w <= n_workers; ++w) {
+        MPI_Send(&dummy, 1, MPI_INT, w, TAG_TERMINATE, MPI_COMM_WORLD);
     }
 
     /* ── Liberar recursos ───────────────────────────────────────────────────*/

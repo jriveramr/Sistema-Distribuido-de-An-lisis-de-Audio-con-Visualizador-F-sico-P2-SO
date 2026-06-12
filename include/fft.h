@@ -50,17 +50,33 @@ double compute_bpm(const double *energies, size_t n_windows,
                    uint32_t hop_size, uint32_t sample_rate);
 
 /*
- * build_led_frame — Genera el frame de 5 bytes para la matriz LED.
+ * build_led_frame — Genera el frame de 7 bytes para la matriz LED 7x7.
  *
- * Mapea las 4 bandas de energía + amplitud a las 5 columnas del display.
- * Cada byte representa una columna (bits 0-4 = filas 0-4).
+ * Mapea:
+ *   Col0 = sub-bass, Col1 = mid, Col2 = upper-mid, Col3 = high,
+ *   Col4 = RMS, Col5 = BPM (normalizado), Col6 = clasificación
  *
- * @param result  WorkerResult (o GlobalResult) con energías
- * @param frame   Array de 5 bytes de salida
+ * @param energy_subbass   Energía sub-bass [0,1]
+ * @param energy_mid       Energía mid [0,1]
+ * @param energy_uppermid  Energía upper-mid [0,1]
+ * @param energy_high      Energía high [0,1]
+ * @param rms_amplitude    Amplitud RMS [0,1]
+ * @param bpm_norm         BPM normalizado [0,1]
+ * @param class_value      Valor de clasificación [0-3] -> normalizado
+ * @param frame            Array de 7 bytes de salida
  */
-void build_led_frame(double energy_subbass, double energy_mid,
-                     double energy_uppermid, double energy_high,
-                     double rms_amplitude,
-                     uint8_t frame[LED_COLS]);
+void build_led_frame_ext(double energy_subbass, double energy_mid,
+                         double energy_uppermid, double energy_high,
+                         double rms_amplitude, double bpm_norm,
+                         double class_value, uint8_t frame[LED_COLS]);
+
+/* Versión simplificada (sin BPM y class) para compatibilidad */
+static inline void build_led_frame(double energy_subbass, double energy_mid,
+                                   double energy_uppermid, double energy_high,
+                                   double rms_amplitude,
+                                   uint8_t frame[LED_COLS]) {
+    build_led_frame_ext(energy_subbass, energy_mid, energy_uppermid,
+                        energy_high, rms_amplitude, 0.0, 0.0, frame);
+}
 
 #endif /* FFT_H */
