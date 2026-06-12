@@ -1,8 +1,8 @@
 /*******************************************************************************
  * sysmon.h — Monitor de recursos del sistema por nodo
  *
- * Requisito: "En cada nodo se debe mostrar el monitor del sistema
- *             para ver el consumo de recursos."
+ * 
+ *             
  *
  * Usa getrusage() (POSIX) y /proc/self/status (Linux) para obtener:
  *   - CPU user + system time

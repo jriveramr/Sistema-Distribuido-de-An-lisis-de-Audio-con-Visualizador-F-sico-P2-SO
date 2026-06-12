@@ -147,7 +147,7 @@ static int process_segment(const int16_t *pcm_mono, uint32_t n_samples,
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * worker_main — Lógica del trabajador, invocado desde main.c cuando rank >= 1.
- * MPI ya está inicializado; NO llamar MPI_Init/Finalize aquí.
+ * 
  * ══════════════════════════════════════════════════════════════════════════════*/
 
 int worker_main(int world_rank, int world_size)

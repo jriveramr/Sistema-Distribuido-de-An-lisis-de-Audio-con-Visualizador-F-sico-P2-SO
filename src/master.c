@@ -283,7 +283,7 @@ static void consolidate_results(WorkerResult *results, int n_results,
 
 /* ══════════════════════════════════════════════════════════════════════════════
  * master_main — Lógica del maestro, invocado desde main.c cuando rank == 0.
- * MPI ya está inicializado; NO llamar MPI_Init/Finalize aquí.
+ * 
  * ══════════════════════════════════════════════════════════════════════════════*/
 
 int master_main(int argc, char *argv[], int world_rank, int world_size)
