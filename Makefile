@@ -16,6 +16,7 @@ CFLAGS = -Wall -Wextra -O2 -std=c99 -Iinclude
 
 SRC = src
 INC = include
+DRIVER_DIR = Driver
 
 .PHONY: all clean run-3node
 
@@ -53,6 +54,7 @@ audio_dist: $(SRC)/main.o \
 clean:
 	rm -f $(SRC)/*.o audio_dist libaudio.a
 	rm -f audio_plain.raw audio_encrypted.raw
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD)/$(DRIVER_DIR) clean
 	@echo "[Makefile] Limpieza completa"
 
 # ─── Clúster 3 nodos físicos ──────────────────────────────────────────────────
@@ -68,3 +70,10 @@ run-3node: all
 	@chmod +x scripts/run_cluster.sh
 	@echo "[Makefile] Edita scripts/hostfile con tus IPs y ejecuta:"
 	@echo "           ./scripts/run_cluster.sh archivo.wav"
+
+
+
+driver:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD)/$(DRIVER_DIR) modules
+
+	

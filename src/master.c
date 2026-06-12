@@ -540,6 +540,11 @@ int master_main(int argc, char *argv[], int world_rank, int world_size)
                     if (ack_buf[0] == 0x01) {
                         printf("[master] Arduino confirmó: LEDs actualizados "
                                "correctamente.\n");
+                        if (n_read > 1) {
+                            ack_buf[n_read] = '\0';
+                            printf("[master] Mensaje Arduino: %s",
+                                   (char *)(ack_buf + 1));
+                        }
                     } else {
                         fprintf(stderr, "[master] Arduino reportó error: "
                                         "código 0x%02X\n", ack_buf[0]);
