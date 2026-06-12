@@ -1,71 +1,71 @@
-# Makefile para Sistema de Análisis de Audio Distribuido
-# Estructura simple: src/ , include/ , y Makefile en raíz
+# ──────────────────────────────────────────────────────────────────────────────
+# Makefile — Sistema de Análisis de Audio Distribuido con OpenMPI
+#
+# Genera UN SOLO binario (audio_dist) para todos los procesos MPI.
+# El proceso rango 0 actúa de maestro; los rangos >= 1 de trabajadores.
+#
+# Uso:
+#   make              — Compila audio_dist
+#   make clean        — Elimina objetos y binario
+#   make run-3node    — Genera hostfile y script de clúster
+# ──────────────────────────────────────────────────────────────────────────────
 
-CC = gcc
-CFLAGS = -Wall -Wextra -O2 -Iinclude
-LDFLAGS = -lm
+CC     = mpicc
+CFLAGS = -Wall -Wextra -O2 -std=c99 -Iinclude
 
-MPICC = mpicc
-MPICFLAGS = -Wall -Wextra -O2 -Iinclude
-MPILDFLAGS = -lm
+SRC = src
+INC = include
 
-# Directorios
-SRC_DIR = src
-INCLUDE_DIR = include
+.PHONY: all clean run-3node
 
-# Archivos fuente (todos en src/)
-SOURCES = $(SRC_DIR)/main.c \
-          $(SRC_DIR)/master.c \
-          $(SRC_DIR)/worker.c \
-          $(SRC_DIR)/fft.c \
-          $(SRC_DIR)/crypto.c \
-          $(SRC_DIR)/audiousb.c
+all: audio_dist
 
-# Objetos (se generan en el mismo directorio src/)
-OBJECTS = $(SOURCES:.c=.o)
+# ─── Compilación de cada unidad de traducción ─────────────────────────────────
+$(SRC)/main.o: $(SRC)/main.c $(INC)/common.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# Ejecutable final
-TARGET = audio_dist
+$(SRC)/master.o: $(SRC)/master.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h $(INC)/sysmon.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
-.PHONY: all clean run run4 run5
+$(SRC)/worker.o: $(SRC)/worker.c $(INC)/common.h $(INC)/crypto.h $(INC)/fft.h $(INC)/sysmon.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
-all: $(TARGET)
+$(SRC)/crypto.o: $(SRC)/crypto.c $(INC)/crypto.h $(INC)/common.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# Regla de enlazado
-$(TARGET): $(OBJECTS)
-	$(MPICC) $(MPICFLAGS) -o $@ $^ $(MPILDFLAGS)
-	@echo "Ejecutable $(TARGET) creado"
+$(SRC)/fft.o: $(SRC)/fft.c $(INC)/fft.h $(INC)/common.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# Regla de compilación para archivos .c
-$(SRC_DIR)/%.o: $(SRC_DIR)/%.c $(INCLUDE_DIR)/*.h
-	$(MPICC) $(MPICFLAGS) -c $< -o $@
+$(SRC)/libaudio_stub.o: $(SRC)/libaudio_stub.c $(INC)/common.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# Limpiar
+# ─── Enlace: un solo binario, todos los .o explícitos, -lm al final ───────────
+audio_dist: $(SRC)/main.o \
+            $(SRC)/master.o \
+            $(SRC)/worker.o \
+            $(SRC)/crypto.o \
+            $(SRC)/fft.o \
+            $(SRC)/libaudio_stub.o
+	$(CC) -o $@ $^ -lm
+	@echo "[Makefile] Binary 'audio_dist' listo"
+	@echo "Ejecutar: mpirun -np 4 ./audio_dist archivo.wav"
+
+# ─── Limpieza ─────────────────────────────────────────────────────────────────
 clean:
-	rm -f $(SRC_DIR)/*.o $(TARGET)
+	rm -f $(SRC)/*.o audio_dist libaudio.a
 	rm -f audio_plain.raw audio_encrypted.raw
+	@echo "[Makefile] Limpieza completa"
 
-# Ejecutar con 3 procesos (1 maestro + 2 trabajadores)
-run: $(TARGET)
-	mpirun -np 3 ./$(TARGET) cancion.wav
-
-# Ejecutar con 4 procesos (1 maestro + 3 trabajadores)
-run4: $(TARGET)
-	mpirun -np 4 ./$(TARGET) cancion.wav
-
-# Ejecutar con 5 procesos (1 maestro + 4 trabajadores)
-run5: $(TARGET)
-	mpirun -np 5 ./$(TARGET) cancion.wav
-
-# Ejecutar con información detallada
-run-verbose: $(TARGET)
-	mpirun -np 4 --display-map --display-allocation ./$(TARGET) cancion.wav
-
-# Verificar dependencias
-check:
-	@echo "Verificando instalación de MPI..."
-	@which mpicc || echo "MPI no instalado. Ejecute: sudo apt install openmpi-bin openmpi-common libopenmpi-dev"
-	@echo "Verificando archivos fuente..."
-	@ls -la $(SRC_DIR)/*.c
-	@echo "Verificando archivos de cabecera..."
-	@ls -la $(INCLUDE_DIR)/*.h
+# ─── Clúster 3 nodos físicos ──────────────────────────────────────────────────
+run-3node: all
+	@mkdir -p scripts
+	@printf "nodo1 slots=2\nnodo2 slots=1\nnodo3 slots=1\n" > scripts/hostfile
+	@printf '#!/bin/bash\n# Uso: ./scripts/run_cluster.sh archivo.wav\n' \
+	    > scripts/run_cluster.sh
+	@printf '# Copiar antes: scp audio_dist usuario@nodo2:~/ usuario@nodo3:~/\n' \
+	    >> scripts/run_cluster.sh
+	@printf 'mpirun --hostfile scripts/hostfile -np 4 ./audio_dist "$$1"\n' \
+	    >> scripts/run_cluster.sh
+	@chmod +x scripts/run_cluster.sh
+	@echo "[Makefile] Edita scripts/hostfile con tus IPs y ejecuta:"
+	@echo "           ./scripts/run_cluster.sh archivo.wav"
