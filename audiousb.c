@@ -1,13 +1,15 @@
 /*
  * audiousb.c - Driver USB para comunicación con Arduino
+ * Proyecto 2 - Sistema Distribuido de Análisis de Audio
+ * CE 4303 - Principios de Sistemas Operativos
  *
  * Este módulo de kernel maneja la comunicación USB entre el nodo maestro
- * del clúster y un Arduino que controla una matriz de LEDs 5x5.
+ * del clúster y un Arduino que controla una matriz de LEDs 7x7.
  * Se registra como dispositivo de caracteres en /dev/audiousb.
  *
  * Flujo de datos:
- *   Biblioteca -> write() -> Driver (kernel)
- *   -> usb_bulk_msg() -> Bus USB -> Arduino -> Matriz LEDs 5x5
+ *   Biblioteca (espacio de usuario) -> write() -> Driver (kernel)
+ *   -> usb_bulk_msg() -> Bus USB -> Arduino -> Matriz LEDs 7x7
  */
 
 #include <linux/module.h>
@@ -16,17 +18,17 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
-//IDs del Arduino - verificar con lsusb 
+/* IDs del Arduino - verificar con lsusb */
 #define VENDOR_ID            0x1A86
 #define PRODUCT_ID           0x7523
 
 #define DEVICE_NAME          "audiousb"
 #define BUFFER_SIZE          64
-#define AUDIOUSB_FRAME_SIZE  5      // 5 bytes: uno por columna 
-#define MAX_LEVEL            5      // Nivel máximo por columna 
-#define USB_TIMEOUT          5000   // Timeout en milisegundos 
+#define AUDIOUSB_FRAME_SIZE  7      /* 7 bytes: uno por columna */
+#define MAX_LEVEL            7      /* Nivel máximo por columna (7 filas) */
+#define USB_TIMEOUT          5000   /* Timeout en milisegundos */
 
-// Estructura del dispositivo
+/* Estructura del dispositivo */
 struct audiousb_device {
     struct usb_device       *udev;
     struct usb_interface    *interface;
@@ -71,7 +73,7 @@ static int audiousb_open(struct inode *inode, struct file *file)
 
 /*
  * Se ejecuta cuando la biblioteca escribe al dispositivo.
- * Recibe los 5 niveles del espectrograma y los manda al Arduino por USB.
+ * Recibe los 7 niveles del espectrograma y los manda al Arduino por USB.
  */
 static ssize_t audiousb_write(struct file *file, const char __user *user_buf,
                                size_t count, loff_t *ppos)
@@ -97,6 +99,11 @@ static ssize_t audiousb_write(struct file *file, const char __user *user_buf,
     /* Validar niveles del espectrograma */
     if (to_send == AUDIOUSB_FRAME_SIZE) {
         int i;
+        pr_info("audiousb: frame [%d, %d, %d, %d, %d, %d, %d]\n",
+                dev->bulk_out_buffer[0], dev->bulk_out_buffer[1],
+                dev->bulk_out_buffer[2], dev->bulk_out_buffer[3],
+                dev->bulk_out_buffer[4], dev->bulk_out_buffer[5],
+                dev->bulk_out_buffer[6]);
         for (i = 0; i < AUDIOUSB_FRAME_SIZE; i++) {
             if (dev->bulk_out_buffer[i] > MAX_LEVEL)
                 dev->bulk_out_buffer[i] = MAX_LEVEL;
@@ -220,4 +227,4 @@ static struct usb_driver audiousb_driver_struct = {
 module_usb_driver(audiousb_driver_struct);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Driver USB - Visualizador de audio con Arduino");
+MODULE_DESCRIPTION("Driver USB - Visualizador de audio con Arduino (CE 4303)");

@@ -1,50 +1,99 @@
+/*
+ * test_driver.c - Programa de prueba para el driver audiousb
+ * Envía frames de 7 bytes al Arduino para probar la matriz 7x7
+ */
+
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdint.h>
 
+#define DEVICE "/dev/audiousb3"
+#define FRAME_SIZE 7
+
 int main()
 {
     int fd;
-    uint8_t frame[5];
-    char respuesta[256];
+    uint8_t frame[FRAME_SIZE];
     int ret;
-    int i;
 
-    fd = open("/dev/audiousb3", O_RDWR);
+    fd = open(DEVICE, O_RDWR);
     if (fd < 0) {
-        perror("No se pudo abrir /dev/audiousb3");
+        perror("No se pudo abrir el dispositivo");
         return 1;
     }
 
     printf("Dispositivo abierto\n\n");
 
-    frame[0] = 0;
+    /* Prueba 1: escalonado */
+    printf("Prueba 1: escalonado\n");
+    frame[3] = 7;
+    frame[4] = 6;
+    frame[5] = 5;
+    frame[6] = 4;
+    frame[0] = 3;
     frame[1] = 2;
-    frame[2] = 3;
-    frame[3] = 4;
-    frame[4] = 5;
-
-    ret = write(fd, frame, 5);
-    if (ret < 0) {
+    frame[2] = 1;
+    printf("Enviando: [%d, %d, %d, %d, %d, %d, %d]\n",
+           frame[0], frame[1], frame[2], frame[3],
+           frame[4], frame[5], frame[6]);
+    ret = write(fd, frame, FRAME_SIZE);
+    if (ret < 0)
         perror("Error escribiendo");
-        close(fd);
-        return 1;
-    }
-    printf("Enviados %d bytes\n\n", ret);
+    else
+        printf("Enviados %d bytes\n", ret);
 
-    /* Leer 20 veces con pausa entre cada lectura */
-    for (i = 0; i < 20; i++) {
-        usleep(200000);
-        memset(respuesta, 0, sizeof(respuesta));
-        ret = read(fd, respuesta, sizeof(respuesta) - 1);
-        if (ret > (int)sizeof(int)) {
-            printf("%s", respuesta);
-        }
-    }
-    printf("\n");
+    sleep(3);
 
+    /* Prueba 2: todo al maximo 
+    printf("\nPrueba 2: todo al maximo\n");
+    memset(frame, 7, FRAME_SIZE);
+    printf("Enviando: [%d, %d, %d, %d, %d, %d, %d]\n",
+           frame[0], frame[1], frame[2], frame[3],
+           frame[4], frame[5], frame[6]);
+    ret = write(fd, frame, FRAME_SIZE);
+    if (ret < 0)
+        perror("Error escribiendo");
+    else
+        printf("Enviados %d bytes\n", ret);
+
+    sleep(3);
+
+     Prueba 3: patron alternado 
+    printf("\nPrueba 3: patron alternado\n");
+    frame[0] = 7;
+    frame[1] = 2;
+    frame[2] = 7;
+    frame[3] = 2;
+    frame[4] = 7;
+    frame[5] = 2;
+    frame[6] = 7;
+    printf("Enviando: [%d, %d, %d, %d, %d, %d, %d]\n",
+           frame[0], frame[1], frame[2], frame[3],
+           frame[4], frame[5], frame[6]);
+    ret = write(fd, frame, FRAME_SIZE);
+    if (ret < 0)
+        perror("Error escribiendo");
+    else
+        printf("Enviados %d bytes\n", ret);
+
+    sleep(3);
+
+    Prueba 4: todo apagado 
+    printf("\nPrueba 4: todo apagado\n");
+    memset(frame, 0, FRAME_SIZE);
+    printf("Enviando: [%d, %d, %d, %d, %d, %d, %d]\n",
+           frame[0], frame[1], frame[2], frame[3],
+           frame[4], frame[5], frame[6]);
+    ret = write(fd, frame, FRAME_SIZE);
+    if (ret < 0)
+        perror("Error escribiendo");
+    else
+        printf("Enviados %d bytes\n", ret);
+        */
     close(fd);
+    printf("\nDispositivo cerrado\n");
+
     return 0;
 }
